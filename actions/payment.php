@@ -1,3 +1,4 @@
+
 <?php
 
 require_once __DIR__ . '/../config/database.php';
@@ -8,9 +9,10 @@ requireTenant();
 
 $user = currentUser();
 
+
 /*
 |--------------------------------------------------------------------------
-| Pastikan request POST
+| Hanya menerima POST
 |--------------------------------------------------------------------------
 */
 
@@ -18,9 +20,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect('/kost-management/tenant/dashboard.php');
 }
 
+
 /*
 |--------------------------------------------------------------------------
-| Ambil bill_id
+| Ambil data dari form
 |--------------------------------------------------------------------------
 */
 
@@ -30,39 +33,55 @@ $billId = filter_input(
     FILTER_VALIDATE_INT
 );
 
-$amount = trim($_POST['amount'] ?? '');
+$reservationId = filter_input(
+    INPUT_POST,
+    'reservation_id',
+    FILTER_VALIDATE_INT
+);
 
-if (!$billId || $amount === '') {
+$amount = trim(
+    $_POST['amount'] ?? ''
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| Validasi data dasar
+|--------------------------------------------------------------------------
+*/
+
+if (!$billId || !$reservationId || $amount === '') {
 
     $_SESSION['payment_error'] =
         'Data pembayaran belum lengkap.';
 
-    redirect(
-        '/kost-management/tenant/dashboard.php'
-    );
+    redirectPayment($reservationId);
 }
+
 
 /*
 |--------------------------------------------------------------------------
-| Validasi jumlah
+| Validasi jumlah pembayaran
 |--------------------------------------------------------------------------
 */
 
-if (!is_numeric($amount) || (float) $amount <= 0) {
+if (
+    !is_numeric($amount) ||
+    (float) $amount <= 0
+) {
 
     $_SESSION['payment_error'] =
         'Jumlah pembayaran tidak valid.';
 
-    redirect(
-        '/kost-management/tenant/dashboard.php'
-    );
+    redirectPayment($reservationId);
 }
 
 $amount = (float) $amount;
 
+
 /*
 |--------------------------------------------------------------------------
-| Pastikan file ada
+| Validasi file upload
 |--------------------------------------------------------------------------
 */
 
@@ -74,17 +93,16 @@ if (
     $_SESSION['payment_error'] =
         'Bukti pembayaran wajib diupload.';
 
-    redirect(
-        '/kost-management/public/payment.php?reservation_id=' .
-        (int) ($_POST['reservation_id'] ?? 0)
-    );
+    redirectPayment($reservationId);
 }
+
 
 $file = $_FILES['proof_file'];
 
+
 /*
 |--------------------------------------------------------------------------
-| Validasi ukuran
+| Validasi ukuran file
 |--------------------------------------------------------------------------
 |
 | Maksimal 2 MB
@@ -98,11 +116,9 @@ if ($file['size'] > $maxFileSize) {
     $_SESSION['payment_error'] =
         'Ukuran file maksimal 2 MB.';
 
-    redirect(
-        '/kost-management/public/payment.php?reservation_id=' .
-        (int) ($_POST['reservation_id'] ?? 0)
-    );
+    redirectPayment($reservationId);
 }
+
 
 /*
 |--------------------------------------------------------------------------
@@ -124,20 +140,24 @@ $extension = strtolower(
     )
 );
 
-if (!in_array($extension, $allowedExtensions, true)) {
+if (
+    !in_array(
+        $extension,
+        $allowedExtensions,
+        true
+    )
+) {
 
     $_SESSION['payment_error'] =
         'Format file tidak diperbolehkan. Gunakan JPG, JPEG, PNG, atau WEBP.';
 
-    redirect(
-        '/kost-management/public/payment.php?reservation_id=' .
-        (int) ($_POST['reservation_id'] ?? 0)
-    );
+    redirectPayment($reservationId);
 }
+
 
 /*
 |--------------------------------------------------------------------------
-| Validasi MIME type menggunakan finfo
+| Validasi MIME type
 |--------------------------------------------------------------------------
 */
 
@@ -153,22 +173,29 @@ $allowedMimeTypes = [
     'image/webp'
 ];
 
-if (!in_array($mimeType, $allowedMimeTypes, true)) {
+if (
+    !in_array(
+        $mimeType,
+        $allowedMimeTypes,
+        true
+    )
+) {
 
     $_SESSION['payment_error'] =
         'File yang diupload bukan gambar yang valid.';
 
-    redirect(
-        '/kost-management/public/payment.php?reservation_id=' .
-        (int) ($_POST['reservation_id'] ?? 0)
-    );
+    redirectPayment($reservationId);
 }
+
 
 try {
 
     /*
     |--------------------------------------------------------------------------
-    | Ambil data tagihan + reservasi
+    | Ambil tagihan dan reservasi
+    |--------------------------------------------------------------------------
+    |
+    | Sekaligus memastikan bill memang milik tenant yang sedang login.
     |--------------------------------------------------------------------------
     */
 
@@ -194,6 +221,7 @@ try {
             ON rm.id = r.room_id
 
          WHERE b.id = ?
+           AND r.id = ?
            AND r.user_id = ?
 
          LIMIT 1"
@@ -201,67 +229,175 @@ try {
 
     $stmt->execute([
         $billId,
+        $reservationId,
         $user['id']
     ]);
 
     $bill = $stmt->fetch();
 
+
     if (!$bill) {
+
         throw new Exception(
-            'Tagihan tidak ditemukan.'
+            'Tagihan tidak ditemukan atau bukan milik Anda.'
         );
     }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ambil pembayaran terakhir
+    |--------------------------------------------------------------------------
+    */
+
+    $stmt = $pdo->prepare(
+        "SELECT
+            id,
+            payment_number,
+            amount,
+            status,
+            proof_file,
+            rejection_reason,
+            created_at
+
+         FROM payments
+
+         WHERE bill_id = ?
+
+         ORDER BY created_at DESC
+
+         LIMIT 1"
+    );
+
+    $stmt->execute([
+        $billId
+    ]);
+
+    $latestPayment = $stmt->fetch();
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Tentukan apakah ini upload pertama atau upload ulang
+    |--------------------------------------------------------------------------
+    */
+
+    $isFirstPayment =
+        !$latestPayment;
+
+    $isRetry =
+        $latestPayment &&
+        $latestPayment['status'] === 'rejected';
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Validasi status pembayaran
+    |--------------------------------------------------------------------------
+    |
+    | Yang diperbolehkan:
+    |
+    | 1. Belum pernah membayar
+    | 2. Pembayaran terakhir ditolak
+    |
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        !$isFirstPayment &&
+        !$isRetry
+    ) {
+
+        if (
+            $latestPayment['status'] ===
+            'waiting_verification'
+        ) {
+
+            throw new Exception(
+                'Bukti pembayaran Anda sedang menunggu verifikasi admin.'
+            );
+        }
+
+
+        if (
+            $latestPayment['status'] ===
+            'verified'
+        ) {
+
+            throw new Exception(
+                'Pembayaran untuk tagihan ini sudah diverifikasi.'
+            );
+        }
+
+
+        throw new Exception(
+            'Pembayaran tidak dapat dilakukan saat ini.'
+        );
+    }
+
 
     /*
     |--------------------------------------------------------------------------
     | Validasi status tagihan
     |--------------------------------------------------------------------------
+    |
+    | Upload pertama:
+    | unpaid
+    |
+    | Upload ulang:
+    | unpaid
+    |
+    | Jika status masih waiting_verification,
+    | berarti pembayaran sebelumnya belum selesai diproses.
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        $bill['bill_status'] !== 'unpaid'
+    ) {
+
+        throw new Exception(
+            'Tagihan tidak berada dalam status yang dapat dibayar.'
+        );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Validasi status reservasi
+    |--------------------------------------------------------------------------
     */
 
     if (
         !in_array(
-            $bill['bill_status'],
-            ['unpaid'],
+            $bill['reservation_status'],
+            [
+                'waiting_payment',
+                'waiting_verification'
+            ],
             true
         )
     ) {
 
-        /*
-        | Jika pembayaran sebelumnya ditolak,
-        | user boleh upload kembali.
-        */
-
-        $stmt = $pdo->prepare(
-            "SELECT status
-             FROM payments
-             WHERE bill_id = ?
-             ORDER BY created_at DESC
-             LIMIT 1"
+        throw new Exception(
+            'Reservasi tidak dapat menerima pembayaran saat ini.'
         );
-
-        $stmt->execute([$billId]);
-
-        $latestPayment = $stmt->fetch();
-
-        if (
-            !$latestPayment ||
-            $latestPayment['status'] !== 'rejected'
-        ) {
-            throw new Exception(
-                'Tagihan ini tidak dapat dibayar kembali saat ini.'
-            );
-        }
     }
+
 
     /*
     |--------------------------------------------------------------------------
-    | Validasi jumlah pembayaran
+    | Jumlah pembayaran harus sama dengan tagihan
     |--------------------------------------------------------------------------
     */
 
     $billAmount = (float) $bill['bill_amount'];
 
-    if (abs($amount - $billAmount) > 0.01) {
+    if (
+        abs(
+            $amount - $billAmount
+        ) > 0.01
+    ) {
 
         throw new Exception(
             'Jumlah pembayaran harus sesuai dengan total tagihan: ' .
@@ -269,13 +405,15 @@ try {
         );
     }
 
+
     /*
     |--------------------------------------------------------------------------
-    | Mulai transaksi
+    | Mulai transaksi database
     |--------------------------------------------------------------------------
     */
 
     $pdo->beginTransaction();
+
 
     /*
     |--------------------------------------------------------------------------
@@ -288,16 +426,20 @@ try {
 
     if (!is_dir($uploadDirectory)) {
 
-        if (!mkdir(
-            $uploadDirectory,
-            0755,
-            true
-        )) {
+        if (
+            !mkdir(
+                $uploadDirectory,
+                0755,
+                true
+            )
+        ) {
+
             throw new Exception(
                 'Folder upload tidak dapat dibuat.'
             );
         }
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -309,12 +451,17 @@ try {
         'payment_' .
         $billId .
         '_' .
-        bin2hex(random_bytes(8)) .
+        bin2hex(
+            random_bytes(8)
+        ) .
         '.' .
         $extension;
 
+
     $destination =
-        $uploadDirectory . $fileName;
+        $uploadDirectory .
+        $fileName;
+
 
     /*
     |--------------------------------------------------------------------------
@@ -322,19 +469,22 @@ try {
     |--------------------------------------------------------------------------
     */
 
-    if (!move_uploaded_file(
-        $file['tmp_name'],
-        $destination
-    )) {
+    if (
+        !move_uploaded_file(
+            $file['tmp_name'],
+            $destination
+        )
+    ) {
 
         throw new Exception(
             'Bukti pembayaran gagal disimpan.'
         );
     }
 
+
     /*
     |--------------------------------------------------------------------------
-    | Nomor pembayaran
+    | Buat nomor pembayaran
     |--------------------------------------------------------------------------
     */
 
@@ -342,12 +492,24 @@ try {
         'PAY-' .
         date('YmdHis') .
         '-' .
-        random_int(100, 999);
+        random_int(
+            100,
+            999
+        );
+
 
     /*
     |--------------------------------------------------------------------------
-    | Jika ada pembayaran rejected sebelumnya,
-    | gunakan record baru.
+    | Simpan pembayaran
+    |--------------------------------------------------------------------------
+    |
+    | Upload pertama:
+    | payment baru → waiting_verification
+    |
+    | Upload ulang:
+    | payment baru → waiting_verification
+    |
+    | Record rejected sebelumnya tetap disimpan sebagai histori.
     |--------------------------------------------------------------------------
     */
 
@@ -371,7 +533,10 @@ try {
         $fileName
     ]);
 
-    $paymentId = $pdo->lastInsertId();
+
+    $paymentId =
+        $pdo->lastInsertId();
+
 
     /*
     |--------------------------------------------------------------------------
@@ -389,6 +554,7 @@ try {
         $billId
     ]);
 
+
     /*
     |--------------------------------------------------------------------------
     | Update status reservasi
@@ -402,14 +568,32 @@ try {
     );
 
     $stmt->execute([
-        $bill['reservation_id']
+        $reservationId
     ]);
+
 
     /*
     |--------------------------------------------------------------------------
     | Notifikasi tenant
     |--------------------------------------------------------------------------
     */
+
+    $notificationTitle =
+        $isRetry
+            ? 'Bukti Pembayaran Dikirim Ulang'
+            : 'Bukti Pembayaran Dikirim';
+
+
+    $notificationMessage =
+        $isRetry
+            ? 'Bukti pembayaran untuk kamar ' .
+              $bill['room_number'] .
+              ' berhasil dikirim ulang dan sedang menunggu verifikasi admin.'
+
+            : 'Bukti pembayaran untuk kamar ' .
+              $bill['room_number'] .
+              ' berhasil dikirim dan sedang menunggu verifikasi admin.';
+
 
     $stmt = $pdo->prepare(
         "INSERT INTO notifications (
@@ -424,17 +608,35 @@ try {
 
     $stmt->execute([
         $user['id'],
-        'Pembayaran Dikirim',
-        'Bukti pembayaran untuk kamar ' .
-        $bill['room_number'] .
-        ' berhasil dikirim dan sedang menunggu verifikasi admin.'
+        $notificationTitle,
+        $notificationMessage
     ]);
+
 
     /*
     |--------------------------------------------------------------------------
     | Activity log
     |--------------------------------------------------------------------------
     */
+
+    $action =
+        $isRetry
+            ? 'retry_payment'
+            : 'create';
+
+
+    $description =
+        $isRetry
+            ? 'Mengirim ulang bukti pembayaran ' .
+              $paymentNumber .
+              ' untuk tagihan ' .
+              $bill['bill_number']
+
+            : 'Mengirim bukti pembayaran ' .
+              $paymentNumber .
+              ' untuk tagihan ' .
+              $bill['bill_number'];
+
 
     $stmt = $pdo->prepare(
         "INSERT INTO activity_logs (
@@ -450,36 +652,44 @@ try {
 
     $stmt->execute([
         $user['id'],
-        'create',
+        $action,
         'payments',
         $paymentId,
-        'Mengirim bukti pembayaran ' .
-        $paymentNumber .
-        ' untuk tagihan ' .
-        $bill['bill_number']
+        $description
     ]);
+
 
     /*
     |--------------------------------------------------------------------------
-    | Commit
+    | Commit transaksi
     |--------------------------------------------------------------------------
     */
 
     $pdo->commit();
 
+
     /*
     |--------------------------------------------------------------------------
-    | Sukses
+    | Pesan sukses
     |--------------------------------------------------------------------------
     */
 
     $_SESSION['payment_success'] =
-        'Bukti pembayaran berhasil dikirim dan sedang menunggu verifikasi admin.';
+        $isRetry
+            ? 'Bukti pembayaran berhasil dikirim ulang dan sedang menunggu verifikasi admin.'
+            : 'Bukti pembayaran berhasil dikirim dan sedang menunggu verifikasi admin.';
 
-    redirect(
-        '/kost-management/public/payment.php?reservation_id=' .
-        $bill['reservation_id']
+
+    /*
+    |--------------------------------------------------------------------------
+    | Kembali ke halaman pembayaran
+    |--------------------------------------------------------------------------
+    */
+
+    redirectPayment(
+        $reservationId
     );
+
 
 } catch (Throwable $e) {
 
@@ -489,9 +699,13 @@ try {
     |--------------------------------------------------------------------------
     */
 
-    if ($pdo->inTransaction()) {
+    if (
+        $pdo->inTransaction()
+    ) {
+
         $pdo->rollBack();
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -503,17 +717,20 @@ try {
         isset($destination) &&
         file_exists($destination)
     ) {
+
         unlink($destination);
     }
 
+
     /*
     |--------------------------------------------------------------------------
-    | Error
+    | Simpan pesan error
     |--------------------------------------------------------------------------
     */
 
     $_SESSION['payment_error'] =
         $e->getMessage();
+
 
     /*
     |--------------------------------------------------------------------------
@@ -521,20 +738,29 @@ try {
     |--------------------------------------------------------------------------
     */
 
-    $reservationId = (int) (
-        $_POST['reservation_id'] ?? 0
+    redirectPayment(
+        $reservationId
     );
+}
 
-    if ($reservationId) {
+
+/*
+|--------------------------------------------------------------------------
+| Function redirect
+|--------------------------------------------------------------------------
+*/
+
+function redirectPayment($reservationId)
+{
+    if (!$reservationId) {
 
         redirect(
-            '/kost-management/public/payment.php?reservation_id=' .
-            $reservationId
+            '/kost-management/tenant/dashboard.php'
         );
     }
 
     redirect(
-        '/kost-management/tenant/dashboard.php'
+        '/kost-management/public/payment.php?reservation_id=' .
+        (int) $reservationId
     );
 }
-

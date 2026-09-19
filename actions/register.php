@@ -5,431 +5,282 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/auth.php';
 
-requireTenant();
-
-$user = currentUser();
-
 /*
 |--------------------------------------------------------------------------
-| Pastikan request POST
+| Pastikan request menggunakan POST
 |--------------------------------------------------------------------------
 */
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    redirect('/kost-management/tenant/dashboard.php');
+    redirect('/kost-management/public/register.php');
 }
+
 
 /*
 |--------------------------------------------------------------------------
-| Ambil bill_id
+| Ambil data form
 |--------------------------------------------------------------------------
 */
 
-$billId = filter_input(
-    INPUT_POST,
-    'bill_id',
-    FILTER_VALIDATE_INT
-);
+$name = trim($_POST['name'] ?? '');
+$email = trim($_POST['email'] ?? '');
+$phone = trim($_POST['phone'] ?? '');
+$password = $_POST['password'] ?? '';
+$passwordConfirmation = $_POST['password_confirmation'] ?? '';
 
-$amount = trim($_POST['amount'] ?? '');
-
-if (!$billId || $amount === '') {
-
-    $_SESSION['payment_error'] =
-        'Data pembayaran belum lengkap.';
-
-    redirect(
-        '/kost-management/tenant/dashboard.php'
-    );
-}
 
 /*
 |--------------------------------------------------------------------------
-| Validasi jumlah
+| Validasi nama
 |--------------------------------------------------------------------------
 */
 
-if (!is_numeric($amount) || (float) $amount <= 0) {
-
-    $_SESSION['payment_error'] =
-        'Jumlah pembayaran tidak valid.';
-
+if ($name === '') {
     redirect(
-        '/kost-management/tenant/dashboard.php'
+        '/kost-management/public/register.php?error=' .
+        urlencode('Nama lengkap wajib diisi.')
     );
 }
 
-$amount = (float) $amount;
+if (mb_strlen($name) < 3) {
+    redirect(
+        '/kost-management/public/register.php?error=' .
+        urlencode('Nama lengkap minimal 3 karakter.')
+    );
+}
+
+if (mb_strlen($name) > 100) {
+    redirect(
+        '/kost-management/public/register.php?error=' .
+        urlencode('Nama lengkap maksimal 100 karakter.')
+    );
+}
+
 
 /*
 |--------------------------------------------------------------------------
-| Pastikan file ada
+| Validasi email
 |--------------------------------------------------------------------------
 */
 
-if (
-    !isset($_FILES['proof_file']) ||
-    $_FILES['proof_file']['error'] !== UPLOAD_ERR_OK
-) {
-
-    $_SESSION['payment_error'] =
-        'Bukti pembayaran wajib diupload.';
-
+if ($email === '') {
     redirect(
-        '/kost-management/public/payment.php?reservation_id=' .
-        (int) ($_POST['reservation_id'] ?? 0)
+        '/kost-management/public/register.php?error=' .
+        urlencode('Email wajib diisi.')
     );
 }
 
-$file = $_FILES['proof_file'];
+if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    redirect(
+        '/kost-management/public/register.php?error=' .
+        urlencode('Format email tidak valid.')
+    );
+}
+
+if (mb_strlen($email) > 150) {
+    redirect(
+        '/kost-management/public/register.php?error=' .
+        urlencode('Email maksimal 150 karakter.')
+    );
+}
+
 
 /*
 |--------------------------------------------------------------------------
-| Validasi ukuran
-|--------------------------------------------------------------------------
-|
-| Maksimal 2 MB
+| Validasi nomor HP
 |--------------------------------------------------------------------------
 */
 
-$maxFileSize = 2 * 1024 * 1024;
+if ($phone !== '') {
 
-if ($file['size'] > $maxFileSize) {
+    if (mb_strlen($phone) > 20) {
+        redirect(
+            '/kost-management/public/register.php?error=' .
+            urlencode('Nomor HP maksimal 20 karakter.')
+        );
+    }
 
-    $_SESSION['payment_error'] =
-        'Ukuran file maksimal 2 MB.';
-
-    redirect(
-        '/kost-management/public/payment.php?reservation_id=' .
-        (int) ($_POST['reservation_id'] ?? 0)
-    );
 }
+
 
 /*
 |--------------------------------------------------------------------------
-| Validasi extension
+| Validasi password
 |--------------------------------------------------------------------------
 */
 
-$allowedExtensions = [
-    'jpg',
-    'jpeg',
-    'png',
-    'webp'
-];
-
-$extension = strtolower(
-    pathinfo(
-        $file['name'],
-        PATHINFO_EXTENSION
-    )
-);
-
-if (!in_array($extension, $allowedExtensions, true)) {
-
-    $_SESSION['payment_error'] =
-        'Format file tidak diperbolehkan. Gunakan JPG, JPEG, PNG, atau WEBP.';
-
+if ($password === '') {
     redirect(
-        '/kost-management/public/payment.php?reservation_id=' .
-        (int) ($_POST['reservation_id'] ?? 0)
+        '/kost-management/public/register.php?error=' .
+        urlencode('Password wajib diisi.')
     );
 }
+
+if (strlen($password) < 8) {
+    redirect(
+        '/kost-management/public/register.php?error=' .
+        urlencode('Password minimal 8 karakter.')
+    );
+}
+
 
 /*
 |--------------------------------------------------------------------------
-| Validasi MIME type menggunakan finfo
+| Validasi konfirmasi password
 |--------------------------------------------------------------------------
 */
 
-$finfo = new finfo(FILEINFO_MIME_TYPE);
-
-$mimeType = $finfo->file(
-    $file['tmp_name']
-);
-
-$allowedMimeTypes = [
-    'image/jpeg',
-    'image/png',
-    'image/webp'
-];
-
-if (!in_array($mimeType, $allowedMimeTypes, true)) {
-
-    $_SESSION['payment_error'] =
-        'File yang diupload bukan gambar yang valid.';
-
+if ($password !== $passwordConfirmation) {
     redirect(
-        '/kost-management/public/payment.php?reservation_id=' .
-        (int) ($_POST['reservation_id'] ?? 0)
+        '/kost-management/public/register.php?error=' .
+        urlencode('Konfirmasi password tidak cocok.')
     );
 }
+
+
+/*
+|--------------------------------------------------------------------------
+| Cek apakah email sudah digunakan
+|--------------------------------------------------------------------------
+*/
 
 try {
 
+    $stmt = $pdo->prepare(
+        "SELECT id
+         FROM users
+         WHERE email = ?
+         LIMIT 1"
+    );
+
+    $stmt->execute([
+        $email
+    ]);
+
+    $existingUser = $stmt->fetch();
+
+    if ($existingUser) {
+
+        redirect(
+            '/kost-management/public/register.php?error=' .
+            urlencode('Email sudah terdaftar. Silakan gunakan email lain.')
+        );
+    }
+
+
     /*
     |--------------------------------------------------------------------------
-    | Ambil data tagihan + reservasi
+    | Hash password
+    |--------------------------------------------------------------------------
+    */
+
+    $hashedPassword = password_hash(
+        $password,
+        PASSWORD_DEFAULT
+    );
+
+    if ($hashedPassword === false) {
+        throw new Exception(
+            'Password gagal diproses.'
+        );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Simpan user
+    |--------------------------------------------------------------------------
+    |
+    | User yang mendaftar otomatis:
+    |
+    | role   = tenant
+    | status = active
+    |
+    */
+
+    $stmt = $pdo->prepare(
+        "INSERT INTO users (
+            name,
+            email,
+            phone,
+            password,
+            role,
+            status
+        ) VALUES (
+            ?, ?, ?, ?, 'tenant', 'active'
+        )"
+    );
+
+    $stmt->execute([
+        $name,
+        $email,
+        $phone !== '' ? $phone : null,
+        $hashedPassword
+    ]);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ambil ID user yang baru dibuat
+    |--------------------------------------------------------------------------
+    */
+
+    $userId = $pdo->lastInsertId();
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ambil data user untuk session
     |--------------------------------------------------------------------------
     */
 
     $stmt = $pdo->prepare(
         "SELECT
-            b.id AS bill_id,
-            b.bill_number,
-            b.amount AS bill_amount,
-            b.status AS bill_status,
-
-            r.id AS reservation_id,
-            r.room_id,
-            r.status AS reservation_status,
-
-            rm.room_number
-
-         FROM bills b
-
-         INNER JOIN reservations r
-            ON r.id = b.reservation_id
-
-         INNER JOIN rooms rm
-            ON rm.id = r.room_id
-
-         WHERE b.id = ?
-           AND r.user_id = ?
-
+            id,
+            name,
+            email,
+            phone,
+            role,
+            status
+         FROM users
+         WHERE id = ?
          LIMIT 1"
     );
 
     $stmt->execute([
-        $billId,
-        $user['id']
+        $userId
     ]);
 
-    $bill = $stmt->fetch();
+    $user = $stmt->fetch();
 
-    if (!$bill) {
+    if (!$user) {
         throw new Exception(
-            'Tagihan tidak ditemukan.'
+            'Akun berhasil dibuat tetapi data user tidak dapat dibaca.'
         );
     }
 
+
     /*
     |--------------------------------------------------------------------------
-    | Validasi status tagihan
+    | Login otomatis setelah registrasi
     |--------------------------------------------------------------------------
     */
 
-    if (
-        !in_array(
-            $bill['bill_status'],
-            ['unpaid'],
-            true
-        )
-    ) {
-
-        /*
-        | Jika pembayaran sebelumnya ditolak,
-        | user boleh upload kembali.
-        */
-
-        $stmt = $pdo->prepare(
-            "SELECT status
-             FROM payments
-             WHERE bill_id = ?
-             ORDER BY created_at DESC
-             LIMIT 1"
-        );
-
-        $stmt->execute([$billId]);
-
-        $latestPayment = $stmt->fetch();
-
-        if (
-            !$latestPayment ||
-            $latestPayment['status'] !== 'rejected'
-        ) {
-            throw new Exception(
-                'Tagihan ini tidak dapat dibayar kembali saat ini.'
-            );
-        }
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Validasi jumlah pembayaran
-    |--------------------------------------------------------------------------
-    */
+    session_regenerate_id(true);
 
-    $billAmount = (float) $bill['bill_amount'];
+    $_SESSION['user'] = [
+        'id' => $user['id'],
+        'name' => $user['name'],
+        'email' => $user['email'],
+        'phone' => $user['phone'],
+        'role' => $user['role'],
+        'status' => $user['status'],
+    ];
 
-    if (abs($amount - $billAmount) > 0.01) {
-
-        throw new Exception(
-            'Jumlah pembayaran harus sesuai dengan total tagihan: ' .
-            rupiah($billAmount)
-        );
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Mulai transaksi
-    |--------------------------------------------------------------------------
-    */
-
-    $pdo->beginTransaction();
-
-    /*
-    |--------------------------------------------------------------------------
-    | Buat folder upload jika belum ada
-    |--------------------------------------------------------------------------
-    */
-
-    $uploadDirectory =
-        __DIR__ . '/../uploads/payment-proofs/';
-
-    if (!is_dir($uploadDirectory)) {
-
-        if (!mkdir(
-            $uploadDirectory,
-            0755,
-            true
-        )) {
-            throw new Exception(
-                'Folder upload tidak dapat dibuat.'
-            );
-        }
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Buat nama file unik
-    |--------------------------------------------------------------------------
-    */
-
-    $fileName =
-        'payment_' .
-        $billId .
-        '_' .
-        bin2hex(random_bytes(8)) .
-        '.' .
-        $extension;
-
-    $destination =
-        $uploadDirectory . $fileName;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Pindahkan file
-    |--------------------------------------------------------------------------
-    */
-
-    if (!move_uploaded_file(
-        $file['tmp_name'],
-        $destination
-    )) {
-
-        throw new Exception(
-            'Bukti pembayaran gagal disimpan.'
-        );
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Nomor pembayaran
-    |--------------------------------------------------------------------------
-    */
-
-    $paymentNumber =
-        'PAY-' .
-        date('YmdHis') .
-        '-' .
-        random_int(100, 999);
-
-    /*
-    |--------------------------------------------------------------------------
-    | Jika ada pembayaran rejected sebelumnya,
-    | gunakan record baru.
-    |--------------------------------------------------------------------------
-    */
-
-    $stmt = $pdo->prepare(
-        "INSERT INTO payments (
-            bill_id,
-            payment_number,
-            amount,
-            payment_date,
-            proof_file,
-            status
-        ) VALUES (
-            ?, ?, ?, NOW(), ?, 'waiting_verification'
-        )"
-    );
-
-    $stmt->execute([
-        $billId,
-        $paymentNumber,
-        $amount,
-        $fileName
-    ]);
-
-    $paymentId = $pdo->lastInsertId();
-
-    /*
-    |--------------------------------------------------------------------------
-    | Update status tagihan
-    |--------------------------------------------------------------------------
-    */
-
-    $stmt = $pdo->prepare(
-        "UPDATE bills
-         SET status = 'waiting_verification'
-         WHERE id = ?"
-    );
-
-    $stmt->execute([
-        $billId
-    ]);
-
-    /*
-    |--------------------------------------------------------------------------
-    | Update status reservasi
-    |--------------------------------------------------------------------------
-    */
-
-    $stmt = $pdo->prepare(
-        "UPDATE reservations
-         SET status = 'waiting_verification'
-         WHERE id = ?"
-    );
-
-    $stmt->execute([
-        $bill['reservation_id']
-    ]);
-
-    /*
-    |--------------------------------------------------------------------------
-    | Notifikasi tenant
-    |--------------------------------------------------------------------------
-    */
-
-    $stmt = $pdo->prepare(
-        "INSERT INTO notifications (
-            user_id,
-            title,
-            message,
-            type
-        ) VALUES (
-            ?, ?, ?, 'payment'
-        )"
-    );
-
-    $stmt->execute([
-        $user['id'],
-        'Pembayaran Dikirim',
-        'Bukti pembayaran untuk kamar ' .
-        $bill['room_number'] .
-        ' berhasil dikirim dan sedang menunggu verifikasi admin.'
-    ]);
 
     /*
     |--------------------------------------------------------------------------
@@ -445,97 +296,54 @@ try {
             record_id,
             description
         ) VALUES (
-            ?, ?, ?, ?, ?
+            ?, 'register', 'users', ?, ?
         )"
     );
 
     $stmt->execute([
         $user['id'],
-        'create',
-        'payments',
-        $paymentId,
-        'Mengirim bukti pembayaran ' .
-        $paymentNumber .
-        ' untuk tagihan ' .
-        $bill['bill_number']
+        $user['id'],
+        'Membuat akun baru sebagai tenant.'
     ]);
 
-    /*
-    |--------------------------------------------------------------------------
-    | Commit
-    |--------------------------------------------------------------------------
-    */
-
-    $pdo->commit();
 
     /*
     |--------------------------------------------------------------------------
-    | Sukses
+    | Redirect berdasarkan role
     |--------------------------------------------------------------------------
     */
 
-    $_SESSION['payment_success'] =
-        'Bukti pembayaran berhasil dikirim dan sedang menunggu verifikasi admin.';
+    redirectByRole();
+
+
+} catch (PDOException $e) {
+
+    /*
+    |--------------------------------------------------------------------------
+    | Error database
+    |--------------------------------------------------------------------------
+    */
+
+    $_SESSION['register_error'] =
+        'Registrasi gagal. Terjadi masalah pada database.';
 
     redirect(
-        '/kost-management/public/payment.php?reservation_id=' .
-        $bill['reservation_id']
+        '/kost-management/public/register.php'
     );
+
 
 } catch (Throwable $e) {
 
     /*
     |--------------------------------------------------------------------------
-    | Rollback
+    | Error umum
     |--------------------------------------------------------------------------
     */
 
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Hapus file jika database gagal
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-        isset($destination) &&
-        file_exists($destination)
-    ) {
-        unlink($destination);
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Error
-    |--------------------------------------------------------------------------
-    */
-
-    $_SESSION['payment_error'] =
+    $_SESSION['register_error'] =
         $e->getMessage();
 
-    /*
-    |--------------------------------------------------------------------------
-    | Kembali ke halaman pembayaran
-    |--------------------------------------------------------------------------
-    */
-
-    $reservationId = (int) (
-        $_POST['reservation_id'] ?? 0
-    );
-
-    if ($reservationId) {
-
-        redirect(
-            '/kost-management/public/payment.php?reservation_id=' .
-            $reservationId
-        );
-    }
-
     redirect(
-        '/kost-management/tenant/dashboard.php'
+        '/kost-management/public/register.php'
     );
 }
-

@@ -19,14 +19,44 @@ $paymentId = filter_input(
     FILTER_VALIDATE_INT
 );
 
+$rejectionReason = trim(
+    $_POST['rejection_reason'] ?? ''
+);
+
 if (!$paymentId) {
-    $_SESSION['payment_error'] = 'ID pembayaran tidak valid.';
-    redirect('/kost-management/admin/payments/index.php');
+    $_SESSION['payment_error'] =
+        'ID pembayaran tidak valid.';
+
+    redirect(
+        '/kost-management/admin/payments/index.php'
+    );
 }
+
+if ($rejectionReason === '') {
+    $_SESSION['payment_error'] =
+        'Alasan penolakan wajib diisi.';
+
+    redirect(
+        '/kost-management/admin/payments/detail.php?id=' .
+        (int) $paymentId
+    );
+}
+
+if (mb_strlen($rejectionReason) > 1000) {
+    $_SESSION['payment_error'] =
+        'Alasan penolakan maksimal 1000 karakter.';
+
+    redirect(
+        '/kost-management/admin/payments/detail.php?id=' .
+        (int) $paymentId
+    );
+}
+
 
 try {
 
     $pdo->beginTransaction();
+
 
     /*
      * Ambil pembayaran dan kunci row.
@@ -36,18 +66,15 @@ try {
         "SELECT
             p.id,
             p.payment_number,
-            p.amount,
             p.status,
 
             b.id AS bill_id,
             b.bill_number,
-            b.amount AS bill_amount,
 
             r.id AS reservation_id,
             r.user_id,
-            r.room_id,
-            r.status AS reservation_status,
 
+            r.room_id,
             rm.room_number
 
          FROM payments p
@@ -66,9 +93,12 @@ try {
          FOR UPDATE"
     );
 
-    $stmt->execute([$paymentId]);
+    $stmt->execute([
+        $paymentId
+    ]);
 
     $payment = $stmt->fetch();
+
 
     if (!$payment) {
         throw new Exception(
@@ -78,8 +108,8 @@ try {
 
 
     /*
-     * Hanya pembayaran yang menunggu verifikasi
-     * yang boleh diverifikasi.
+     * Hanya pembayaran waiting_verification
+     * yang dapat ditolak.
      */
 
     if ($payment['status'] !== 'waiting_verification') {
@@ -90,49 +120,31 @@ try {
 
 
     /*
-     * Pastikan nominal pembayaran sesuai
-     * dengan nominal tagihan.
-     */
-
-    if (
-        abs(
-            (float) $payment['amount']
-            -
-            (float) $payment['bill_amount']
-        ) > 0.01
-    ) {
-        throw new Exception(
-            'Jumlah pembayaran tidak sesuai dengan tagihan.'
-        );
-    }
-
-
-    /*
-     * Update payment.
+     * Payment menjadi rejected.
      */
 
     $stmt = $pdo->prepare(
         "UPDATE payments
          SET
-            status = 'verified',
-            verified_by = ?,
-            verified_at = NOW()
+            status = 'rejected',
+            rejection_reason = ?
          WHERE id = ?"
     );
 
     $stmt->execute([
-        $admin['id'],
+        $rejectionReason,
         $paymentId
     ]);
 
 
     /*
-     * Update bill menjadi lunas.
+     * Bill kembali menjadi unpaid
+     * agar tenant dapat upload ulang.
      */
 
     $stmt = $pdo->prepare(
         "UPDATE bills
-         SET status = 'paid'
+         SET status = 'unpaid'
          WHERE id = ?"
     );
 
@@ -142,12 +154,12 @@ try {
 
 
     /*
-     * Reservasi menjadi aktif.
+     * Reservation kembali ke waiting_payment.
      */
 
     $stmt = $pdo->prepare(
         "UPDATE reservations
-         SET status = 'active'
+         SET status = 'waiting_payment'
          WHERE id = ?"
     );
 
@@ -157,33 +169,18 @@ try {
 
 
     /*
-     * Kamar menjadi terisi.
-     */
-
-    $stmt = $pdo->prepare(
-        "UPDATE rooms
-         SET status = 'occupied'
-         WHERE id = ?"
-    );
-
-    $stmt->execute([
-        $payment['room_id']
-    ]);
-
-
-    /*
      * Notifikasi tenant.
      */
 
     $notificationTitle =
-        'Pembayaran Berhasil Diverifikasi';
+        'Pembayaran Ditolak';
 
     $notificationMessage =
-        'Pembayaran untuk kamar ' .
+        'Bukti pembayaran untuk kamar ' .
         $payment['room_number'] .
-        ' dengan nomor pembayaran ' .
-        $payment['payment_number'] .
-        ' telah diverifikasi. Reservasi Anda sekarang aktif.';
+        ' ditolak oleh admin. Alasan: ' .
+        $rejectionReason .
+        '. Silakan upload bukti pembayaran kembali.';
 
 
     $stmt = $pdo->prepare(
@@ -209,13 +206,12 @@ try {
      */
 
     $description =
-        'Memverifikasi pembayaran ' .
+        'Menolak pembayaran ' .
         $payment['payment_number'] .
         ' untuk tagihan ' .
         $payment['bill_number'] .
-        '. Kamar ' .
-        $payment['room_number'] .
-        ' menjadi terisi.';
+        '. Alasan: ' .
+        $rejectionReason;
 
 
     $stmt = $pdo->prepare(
@@ -226,7 +222,7 @@ try {
             record_id,
             description
         ) VALUES (
-            ?, 'verify', 'payments', ?, ?
+            ?, 'reject', 'payments', ?, ?
         )"
     );
 
@@ -241,11 +237,12 @@ try {
 
 
     $_SESSION['payment_success'] =
-        'Pembayaran berhasil diverifikasi. Reservasi menjadi aktif dan kamar sekarang terisi.';
+        'Pembayaran berhasil ditolak. Tenant dapat mengupload bukti pembayaran kembali.';
 
     redirect(
         '/kost-management/admin/payments/index.php'
     );
+
 
 } catch (Throwable $e) {
 
