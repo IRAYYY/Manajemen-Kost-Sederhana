@@ -1,7 +1,7 @@
+
 <?php
 
 $user = $_SESSION['user'] ?? null;
-
 ?>
 
 <nav class="border-b border-slate-200 bg-white">
@@ -13,11 +13,9 @@ $user = $_SESSION['user'] ?? null;
             class="flex items-center gap-2 font-bold text-slate-900"
         >
             <i class="fa-solid fa-house"></i>
-
-            <span>
-                Kost Management
-            </span>
+            <span>Kost Management</span>
         </a>
+
 
         <div class="flex items-center gap-4 text-sm">
 
@@ -28,6 +26,7 @@ $user = $_SESSION['user'] ?? null;
                 Kamar
             </a>
 
+
             <?php if ($user): ?>
 
                 <?php if ($user['role'] === 'admin'): ?>
@@ -37,6 +36,27 @@ $user = $_SESSION['user'] ?? null;
                         class="text-slate-600 transition hover:text-slate-900"
                     >
                         Dashboard
+                    </a>
+
+                    <a
+                        href="/kost-management/admin/rooms/index.php"
+                        class="text-slate-600 transition hover:text-slate-900"
+                    >
+                        Kamar
+                    </a>
+
+                    <a
+                        href="/kost-management/admin/tenants/index.php"
+                        class="text-slate-600 transition hover:text-slate-900"
+                    >
+                        Tenant
+                    </a>
+
+                    <a
+                        href="/kost-management/admin/payments/index.php"
+                        class="text-slate-600 transition hover:text-slate-900"
+                    >
+                        Pembayaran
                     </a>
 
                 <?php else: ?>
@@ -50,22 +70,12 @@ $user = $_SESSION['user'] ?? null;
 
                 <?php endif; ?>
 
-                <span class="hidden text-slate-400 sm:inline">
-                    |
-                </span>
-
-                <span class="hidden font-medium text-slate-700 sm:inline">
-                    <?= e($user['name']) ?>
-                </span>
 
                 <a
                     href="/kost-management/actions/logout.php"
-                    class="flex items-center gap-1 text-red-600 transition hover:text-red-700"
+                    class="text-red-600 transition hover:text-red-700"
                 >
-                    <i class="fa-solid fa-right-from-bracket"></i>
-                    <span class="hidden sm:inline">
-                        Keluar
-                    </span>
+                    Keluar
                 </a>
 
             <?php else: ?>
@@ -91,3 +101,4 @@ $user = $_SESSION['user'] ?? null;
     </div>
 
 </nav>
+
