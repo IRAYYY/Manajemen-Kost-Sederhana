@@ -11,7 +11,17 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     redirect('/kost-management/public/rooms.php');
 }
 
-$user = currentUser();
+$user = refreshCurrentUser($pdo);
+
+/*
+|--------------------------------------------------------------------------
+| Validasi Profil (Harus melengkapi profil & KTP sebelum booking)
+|--------------------------------------------------------------------------
+*/
+if (($user['verification_status'] ?? 'belum_verifikasi') === 'belum_verifikasi') {
+    $_SESSION['profile_error'] = 'Silakan lengkapi data profil dan upload foto KTP Anda terlebih dahulu sebelum memesan kamar.';
+    redirect('/kost-management/tenant/profile.php');
+}
 
 $roomId = filter_input(
     INPUT_POST,
@@ -25,6 +35,27 @@ $endPeriod   = trim($_POST['end_period'] ?? '');
 if (!$roomId || !$startPeriod || !$endPeriod) {
     $_SESSION['booking_error'] = 'Data booking belum lengkap.';
     redirect('/kost-management/public/rooms.php');
+}
+
+/*
+|--------------------------------------------------------------------------
+| Validasi 1 User Hanya Bisa Booking / Memesan 1 Kamar
+|--------------------------------------------------------------------------
+*/
+$chkStmt = $pdo->prepare(
+    "SELECT r.id, rm.room_number 
+     FROM reservations r 
+     JOIN rooms rm ON rm.id = r.room_id 
+     WHERE r.user_id = ? 
+       AND r.status IN ('pending', 'waiting_payment', 'waiting_verification', 'active') 
+     LIMIT 1"
+);
+$chkStmt->execute([$user['id']]);
+$existingReservation = $chkStmt->fetch();
+
+if ($existingReservation) {
+    $_SESSION['error'] = 'Anda sudah memiliki pemesanan aktif untuk Kamar ' . $existingReservation['room_number'] . '. 1 user hanya dapat memesan 1 kamar.';
+    redirect('/kost-management/tenant/dashboard.php');
 }
 
 /*

@@ -20,7 +20,8 @@ $roomId = filter_input(
 );
 
 $roomNumber = trim($_POST['room_number'] ?? '');
-$type = trim($_POST['type'] ?? '');
+$type = strtolower(trim($_POST['type'] ?? ''));
+$capacity = filter_input(INPUT_POST, 'capacity', FILTER_VALIDATE_INT) ?: 1;
 $monthlyPrice = trim($_POST['monthly_price'] ?? '');
 $facilities = trim($_POST['facilities'] ?? '');
 
@@ -57,9 +58,9 @@ if (mb_strlen($roomNumber) > 20) {
 }
 
 
-if ($type === '') {
+if ($type === '' || !in_array($type, ['standard', 'deluxe'], true)) {
     $_SESSION['room_error'] =
-        'Tipe kamar wajib diisi.';
+        'Tipe kamar wajib dipilih (standard atau deluxe).';
 
     redirect(
         '/kost-management/admin/rooms/edit.php?id=' .
@@ -68,9 +69,9 @@ if ($type === '') {
 }
 
 
-if (mb_strlen($type) > 50) {
+if ($capacity < 1 || $capacity > 20) {
     $_SESSION['room_error'] =
-        'Tipe kamar maksimal 50 karakter.';
+        'Jumlah orang (kapasitas) minimal 1 dan maksimal 20.';
 
     redirect(
         '/kost-management/admin/rooms/edit.php?id=' .
@@ -103,6 +104,50 @@ if ($monthlyPrice <= 0) {
 }
 
 
+$newUploadedPhoto = null;
+$photoDestination = null;
+
+if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
+    $file = $_FILES['photo'];
+    $maxFileSize = 2 * 1024 * 1024; // 2MB
+
+    if ($file['size'] > $maxFileSize) {
+        $_SESSION['room_error'] = 'Ukuran foto kamar maksimal 2 MB.';
+        redirect('/kost-management/admin/rooms/edit.php?id=' . $roomId);
+    }
+
+    $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+    $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+
+    if (!in_array($extension, $allowedExtensions, true)) {
+        $_SESSION['room_error'] = 'Format foto tidak valid. Gunakan JPG, JPEG, PNG, atau WEBP.';
+        redirect('/kost-management/admin/rooms/edit.php?id=' . $roomId);
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = $finfo->file($file['tmp_name']);
+    $allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+
+    if (!in_array($mimeType, $allowedMimes, true)) {
+        $_SESSION['room_error'] = 'File yang diupload bukan gambar yang valid.';
+        redirect('/kost-management/admin/rooms/edit.php?id=' . $roomId);
+    }
+
+    $uploadDir = __DIR__ . '/../../uploads/rooms/';
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0755, true);
+    }
+
+    $newUploadedPhoto = 'room_' . bin2hex(random_bytes(8)) . '.' . $extension;
+    $photoDestination = $uploadDir . $newUploadedPhoto;
+
+    if (!move_uploaded_file($file['tmp_name'], $photoDestination)) {
+        $_SESSION['room_error'] = 'Gagal menyimpan foto kamar.';
+        redirect('/kost-management/admin/rooms/edit.php?id=' . $roomId);
+    }
+}
+
+
 try {
 
     /*
@@ -113,6 +158,7 @@ try {
         "SELECT
             id,
             room_number,
+            photo,
             status
          FROM rooms
          WHERE id = ?
@@ -161,6 +207,20 @@ try {
 
 
     /*
+     * Tentukan photo yang akan disimpan di DB.
+     */
+    $finalPhoto = $room['photo'];
+    $oldPhotoToDelete = null;
+
+    if ($newUploadedPhoto) {
+        $finalPhoto = $newUploadedPhoto;
+        if (!empty($room['photo'])) {
+            $oldPhotoToDelete = __DIR__ . '/../../uploads/rooms/' . $room['photo'];
+        }
+    }
+
+
+    /*
      * Update data kamar.
      */
 
@@ -169,16 +229,20 @@ try {
          SET
             room_number = ?,
             type = ?,
+            capacity = ?,
             monthly_price = ?,
-            facilities = ?
+            facilities = ?,
+            photo = ?
          WHERE id = ?"
     );
 
     $stmt->execute([
         $roomNumber,
         $type,
+        $capacity,
         $monthlyPrice,
         $facilities !== '' ? $facilities : null,
+        $finalPhoto,
         $roomId
     ]);
 
@@ -191,8 +255,10 @@ try {
         'Mengubah data kamar ' .
         $roomNumber .
         '. Tipe: ' .
-        $type .
-        ', harga: ' .
+        roomTypeLabel($type) .
+        ', kapasitas: ' .
+        $capacity .
+        ' orang, harga: ' .
         rupiah($monthlyPrice) .
         ' per bulan.';
 
@@ -218,6 +284,11 @@ try {
 
     $pdo->commit();
 
+    // Hapus file lama jika update sukses dan ada foto baru
+    if ($oldPhotoToDelete && file_exists($oldPhotoToDelete)) {
+        unlink($oldPhotoToDelete);
+    }
+
 
     $_SESSION['room_success'] =
         'Data kamar ' .
@@ -236,6 +307,10 @@ try {
         $pdo->rollBack();
     }
 
+    if ($photoDestination && file_exists($photoDestination)) {
+        unlink($photoDestination);
+    }
+
     $_SESSION['room_error'] =
         $e->getMessage();
 
@@ -244,4 +319,5 @@ try {
         $roomId
     );
 }
+
 

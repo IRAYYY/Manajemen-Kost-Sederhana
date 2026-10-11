@@ -23,8 +23,10 @@ $stmt = $pdo->prepare(
         rm.id,
         rm.room_number,
         rm.type,
+        rm.capacity,
         rm.monthly_price,
         rm.facilities,
+        rm.photo,
         rm.status,
 
         r.id AS reservation_id,
@@ -224,6 +226,7 @@ require_once __DIR__ . '/../../includes/header.php';
         <form
             action="/kost-management/admin/rooms/update.php"
             method="POST"
+            enctype="multipart/form-data"
             class="p-6 sm:p-8"
         >
 
@@ -260,7 +263,7 @@ require_once __DIR__ . '/../../includes/header.php';
                 </div>
 
 
-                <!-- Type -->
+                <!-- Type (Enum: standard, deluxe) -->
 
                 <div>
 
@@ -271,15 +274,44 @@ require_once __DIR__ . '/../../includes/header.php';
                         Tipe Kamar
                     </label>
 
-                    <input
-                        type="text"
+                    <select
                         id="type"
                         name="type"
-                        value="<?= e($room['type']) ?>"
                         required
-                        maxlength="50"
+                        class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
+                    >
+                        <option value="standard" <?= strtolower($room['type']) === 'standard' ? 'selected' : '' ?>>Standard</option>
+                        <option value="deluxe" <?= strtolower($room['type']) === 'deluxe' ? 'selected' : '' ?>>Deluxe</option>
+                    </select>
+
+                </div>
+
+
+                <!-- Kapasitas (Jumlah Orang) -->
+
+                <div>
+
+                    <label
+                        for="capacity"
+                        class="mb-2 block text-sm font-medium text-slate-700"
+                    >
+                        Jumlah Orang Tiap Kamar (Kapasitas)
+                    </label>
+
+                    <input
+                        type="number"
+                        id="capacity"
+                        name="capacity"
+                        value="<?= e($room['capacity'] ?? 1) ?>"
+                        required
+                        min="1"
+                        max="20"
                         class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                     >
+
+                    <p class="mt-1 text-xs text-slate-500">
+                        Maksimal kapasitas orang untuk kamar ini.
+                    </p>
 
                 </div>
 
@@ -334,6 +366,50 @@ require_once __DIR__ . '/../../includes/header.php';
                         rows="4"
                         class="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
                     ><?= e($room['facilities']) ?></textarea>
+
+                </div>
+
+
+                <!-- Foto Kamar -->
+
+                <div>
+
+                    <label
+                        for="photo"
+                        class="mb-2 block text-sm font-medium text-slate-700"
+                    >
+                        Foto Kamar
+                    </label>
+
+                    <?php if (!empty($room['photo'])): ?>
+
+                        <div class="mb-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-2 max-w-sm">
+
+                            <img
+                                src="/kost-management/uploads/rooms/<?= e($room['photo']) ?>"
+                                alt="Foto Kamar <?= e($room['room_number']) ?>"
+                                class="h-44 w-full rounded-lg object-cover"
+                            >
+
+                            <p class="mt-2 text-center text-xs text-slate-500">
+                                Foto saat ini. Pilih file baru di bawah jika ingin menggantinya.
+                            </p>
+
+                        </div>
+
+                    <?php endif; ?>
+
+                    <input
+                        type="file"
+                        id="photo"
+                        name="photo"
+                        accept=".jpg,.jpeg,.png,.webp"
+                        class="block w-full cursor-pointer rounded-xl border border-slate-300 bg-white text-sm text-slate-600 file:mr-4 file:border-0 file:bg-slate-100 file:px-4 file:py-3 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-200"
+                    >
+
+                    <p class="mt-1.5 text-xs text-slate-500">
+                        Format: JPG, JPEG, PNG, atau WEBP. Maksimal 2 MB. Kosongkan jika tidak ingin mengubah foto.
+                    </p>
 
                 </div>
 

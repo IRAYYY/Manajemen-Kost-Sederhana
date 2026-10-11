@@ -14,7 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $admin = currentUser();
 
 $roomNumber = trim($_POST['room_number'] ?? '');
-$type = trim($_POST['type'] ?? '');
+$type = strtolower(trim($_POST['type'] ?? ''));
+$capacity = filter_input(INPUT_POST, 'capacity', FILTER_VALIDATE_INT) ?: 1;
 $monthlyPrice = trim($_POST['monthly_price'] ?? '');
 $facilities = trim($_POST['facilities'] ?? '');
 
@@ -30,13 +31,14 @@ if (mb_strlen($roomNumber) > 20) {
 }
 
 
-if ($type === '') {
-    $_SESSION['room_error'] = 'Tipe kamar wajib diisi.';
+if ($type === '' || !in_array($type, ['standard', 'deluxe'], true)) {
+    $_SESSION['room_error'] = 'Tipe kamar wajib dipilih (standard atau deluxe).';
     redirect('/kost-management/admin/rooms/create.php');
 }
 
-if (mb_strlen($type) > 50) {
-    $_SESSION['room_error'] = 'Tipe kamar maksimal 50 karakter.';
+
+if ($capacity < 1 || $capacity > 20) {
+    $_SESSION['room_error'] = 'Jumlah orang (kapasitas) minimal 1 dan maksimal 20.';
     redirect('/kost-management/admin/rooms/create.php');
 }
 
@@ -51,6 +53,50 @@ $monthlyPrice = (float) $monthlyPrice;
 if ($monthlyPrice <= 0) {
     $_SESSION['room_error'] = 'Harga kamar harus lebih dari 0.';
     redirect('/kost-management/admin/rooms/create.php');
+}
+
+
+$uploadedPhoto = null;
+$photoDestination = null;
+
+if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
+    $file = $_FILES['photo'];
+    $maxFileSize = 2 * 1024 * 1024; // 2MB
+
+    if ($file['size'] > $maxFileSize) {
+        $_SESSION['room_error'] = 'Ukuran foto kamar maksimal 2 MB.';
+        redirect('/kost-management/admin/rooms/create.php');
+    }
+
+    $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+    $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+
+    if (!in_array($extension, $allowedExtensions, true)) {
+        $_SESSION['room_error'] = 'Format foto tidak valid. Gunakan JPG, JPEG, PNG, atau WEBP.';
+        redirect('/kost-management/admin/rooms/create.php');
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = $finfo->file($file['tmp_name']);
+    $allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+
+    if (!in_array($mimeType, $allowedMimes, true)) {
+        $_SESSION['room_error'] = 'File yang diupload bukan gambar yang valid.';
+        redirect('/kost-management/admin/rooms/create.php');
+    }
+
+    $uploadDir = __DIR__ . '/../../uploads/rooms/';
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0755, true);
+    }
+
+    $uploadedPhoto = 'room_' . bin2hex(random_bytes(8)) . '.' . $extension;
+    $photoDestination = $uploadDir . $uploadedPhoto;
+
+    if (!move_uploaded_file($file['tmp_name'], $photoDestination)) {
+        $_SESSION['room_error'] = 'Gagal menyimpan foto kamar.';
+        redirect('/kost-management/admin/rooms/create.php');
+    }
 }
 
 
@@ -89,19 +135,23 @@ try {
         "INSERT INTO rooms (
             room_number,
             type,
+            capacity,
             monthly_price,
             facilities,
+            photo,
             status
         ) VALUES (
-            ?, ?, ?, ?, 'available'
+            ?, ?, ?, ?, ?, ?, 'available'
         )"
     );
 
     $stmt->execute([
         $roomNumber,
         $type,
+        $capacity,
         $monthlyPrice,
-        $facilities !== '' ? $facilities : null
+        $facilities !== '' ? $facilities : null,
+        $uploadedPhoto
     ]);
 
 
@@ -116,8 +166,10 @@ try {
         'Menambahkan kamar ' .
         $roomNumber .
         ' dengan tipe ' .
-        $type .
-        ' dan harga ' .
+        roomTypeLabel($type) .
+        ', kapasitas ' .
+        $capacity .
+        ' orang, dan harga ' .
         rupiah($monthlyPrice) .
         ' per bulan.';
 
@@ -158,6 +210,10 @@ try {
         $pdo->rollBack();
     }
 
+    if ($photoDestination && file_exists($photoDestination)) {
+        unlink($photoDestination);
+    }
+
     $_SESSION['room_error'] =
         $e->getMessage();
 
@@ -165,4 +221,5 @@ try {
         '/kost-management/admin/rooms/create.php'
     );
 }
+
 

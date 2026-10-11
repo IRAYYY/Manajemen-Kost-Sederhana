@@ -39,6 +39,7 @@ try {
         "SELECT
             id,
             room_number,
+            photo,
             status
          FROM rooms
          WHERE id = ?
@@ -147,11 +148,19 @@ try {
 
     $pdo->commit();
 
+    if (!empty($room['photo'])) {
+        $photoFile = __DIR__ . '/../../uploads/rooms/' . $room['photo'];
+        if (file_exists($photoFile)) {
+            unlink($photoFile);
+        }
+    }
+
 
     $_SESSION['room_success'] =
         'Kamar ' .
         $room['room_number'] .
         ' berhasil dihapus.';
+
 
 
 } catch (Throwable $e) {

@@ -6,6 +6,39 @@ require_once __DIR__ . '/../includes/auth.php';
 
 requireTenant();
 
+$user = refreshCurrentUser($pdo);
+
+/*
+|--------------------------------------------------------------------------
+| Validasi Profil (Harus melengkapi profil & KTP sebelum booking)
+|--------------------------------------------------------------------------
+*/
+if (($user['verification_status'] ?? 'belum_verifikasi') === 'belum_verifikasi') {
+    $_SESSION['profile_error'] = 'Silakan lengkapi profil dan upload foto KTP Anda terlebih dahulu sebelum memesan kamar.';
+    redirect('/kost-management/tenant/profile.php');
+}
+
+/*
+|--------------------------------------------------------------------------
+| Validasi 1 User Hanya Bisa Booking / Memesan 1 Kamar
+|--------------------------------------------------------------------------
+*/
+$chkStmt = $pdo->prepare(
+    "SELECT r.id, rm.room_number 
+     FROM reservations r 
+     JOIN rooms rm ON rm.id = r.room_id 
+     WHERE r.user_id = ? 
+       AND r.status IN ('pending', 'waiting_payment', 'waiting_verification', 'active') 
+     LIMIT 1"
+);
+$chkStmt->execute([$user['id']]);
+$activeBooking = $chkStmt->fetch();
+
+if ($activeBooking) {
+    $_SESSION['error'] = 'Anda sudah memiliki pemesanan aktif untuk Kamar ' . $activeBooking['room_number'] . '. 1 user hanya dapat memesan 1 kamar.';
+    redirect('/kost-management/tenant/dashboard.php');
+}
+
 /*
 |--------------------------------------------------------------------------
 | Ambil ID kamar
@@ -29,8 +62,10 @@ $stmt = $pdo->prepare("
         id,
         room_number,
         type,
+        capacity,
         monthly_price,
         facilities,
+        photo,
         status
     FROM rooms
     WHERE id = ?
@@ -231,31 +266,53 @@ require_once __DIR__ . '/../includes/header.php';
         <!-- Room Information -->
         <div class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
 
-            <div class="flex items-center justify-between gap-4 p-5 sm:p-6">
+            <div class="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
 
-                <div>
+                <div class="flex items-center gap-4">
 
-                    <p class="text-xs font-medium uppercase tracking-wide text-slate-500">
-                        Kamar
-                    </p>
+                    <?php if (!empty($room['photo'])): ?>
+                        <img
+                            src="/kost-management/uploads/rooms/<?= e($room['photo']) ?>"
+                            alt="Foto Kamar <?= e($room['room_number']) ?>"
+                            class="h-20 w-24 rounded-xl object-cover"
+                        >
+                    <?php else: ?>
+                        <div class="flex h-20 w-24 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+                            <i class="fa-solid fa-door-open text-2xl"></i>
+                        </div>
+                    <?php endif; ?>
 
-                    <h2 class="mt-1 text-xl font-bold text-slate-900">
-                        <?= e($room['room_number']) ?>
-                    </h2>
+                    <div>
 
-                    <p class="mt-1 text-sm text-slate-500">
-                        <?= e($room['type']) ?>
-                    </p>
+                        <p class="text-xs font-medium uppercase tracking-wide text-slate-500">
+                            Kamar
+                        </p>
+
+                        <h2 class="mt-0.5 text-xl font-bold text-slate-900">
+                            Kamar <?= e($room['room_number']) ?>
+                        </h2>
+
+                        <div class="mt-1 flex flex-wrap items-center gap-2">
+                            <span class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                                <?= e(roomTypeLabel($room['type'])) ?>
+                            </span>
+                            <span class="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+                                <i class="fa-solid fa-users text-blue-400"></i>
+                                <?= (int) ($room['capacity'] ?? 1) ?> Orang
+                            </span>
+                        </div>
+
+                    </div>
 
                 </div>
 
-                <div class="text-right">
+                <div class="text-left sm:text-right border-t border-slate-100 pt-3 sm:border-0 sm:pt-0">
 
                     <p class="text-xs text-slate-500">
                         Harga / bulan
                     </p>
 
-                    <p class="mt-1 text-lg font-bold text-slate-900">
+                    <p class="mt-0.5 text-lg font-bold text-slate-900">
                         <?= rupiah($monthlyPrice) ?>
                     </p>
 

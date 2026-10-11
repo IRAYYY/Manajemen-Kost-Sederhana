@@ -769,9 +769,14 @@ require_once __DIR__ . '/../../includes/header.php';
 
                                         <?php if ($payment['rejection_reason']): ?>
 
-                                            <p class="mt-2 max-w-xs text-xs text-red-600">
-                                                <?= e($payment['rejection_reason']) ?>
-                                            </p>
+                                            <button
+                                                type="button"
+                                                onclick="openNoteModal('Alasan Penolakan Pembayaran', <?= json_encode($payment['rejection_reason']) ?>)"
+                                                class="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-50"
+                                            >
+                                                <i class="fa-solid fa-comment-dots text-red-500"></i>
+                                                Lihat Catatan
+                                            </button>
 
                                         <?php endif; ?>
 

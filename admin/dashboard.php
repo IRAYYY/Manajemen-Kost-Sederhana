@@ -64,6 +64,22 @@ $pendingPayments = (int) ($stmt->fetch()['total'] ?? 0);
 
 /*
 |--------------------------------------------------------------------------
+| User Menunggu Verifikasi Profil
+|--------------------------------------------------------------------------
+*/
+
+$stmt = $pdo->query(
+    "SELECT COUNT(*) AS total
+     FROM users
+     WHERE role = 'tenant'
+       AND verification_status = 'menunggu_verifikasi'"
+);
+
+$pendingUserVerifications = (int) ($stmt->fetch()['total'] ?? 0);
+
+
+/*
+|--------------------------------------------------------------------------
 | Total Pendapatan Terverifikasi
 |--------------------------------------------------------------------------
 */
@@ -198,6 +214,20 @@ require_once __DIR__ . '/../includes/header.php';
                 >
                     <i class="fa-solid fa-door-open"></i>
                     Kelola Kamar
+                </a>
+
+
+                <a
+                    href="/kost-management/admin/users/index.php"
+                    class="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                    <i class="fa-solid fa-id-card"></i>
+                    Verifikasi User
+                    <?php if ($pendingUserVerifications > 0): ?>
+                        <span class="rounded-full bg-blue-600 px-2 py-0.5 text-xs text-white">
+                            <?= $pendingUserVerifications ?>
+                        </span>
+                    <?php endif; ?>
                 </a>
 
 
@@ -391,6 +421,43 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
 
             </div>
+
+        </div>
+
+
+        <!-- User Verifikasi Pending -->
+
+        <div class="rounded-2xl border border-blue-100 bg-blue-50 p-5">
+
+            <div class="flex items-center gap-4">
+
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-white text-blue-600">
+                    <i class="fa-solid fa-id-card"></i>
+                </div>
+
+                <div>
+
+                    <p class="text-sm text-blue-700">
+                        Profil Menunggu Verifikasi
+                    </p>
+
+                    <p class="text-xl font-bold text-blue-900">
+                        <?= $pendingUserVerifications ?>
+                    </p>
+
+                </div>
+
+            </div>
+
+            <?php if ($pendingUserVerifications > 0): ?>
+                <a
+                    href="/kost-management/admin/users/index.php?tab=menunggu_verifikasi"
+                    class="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900"
+                >
+                    <i class="fa-solid fa-arrow-right"></i>
+                    Periksa Sekarang
+                </a>
+            <?php endif; ?>
 
         </div>
 

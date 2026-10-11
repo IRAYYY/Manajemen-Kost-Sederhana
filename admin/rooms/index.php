@@ -15,8 +15,10 @@ $stmt = $pdo->query(
         rm.id,
         rm.room_number,
         rm.type,
+        rm.capacity,
         rm.monthly_price,
         rm.facilities,
+        rm.photo,
         rm.status,
 
         r.id AS reservation_id,
@@ -183,59 +185,64 @@ require_once __DIR__ . '/../../includes/header.php';
 
             <?php foreach ($rooms as $room): ?>
 
-                <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col justify-between">
 
-                    <!-- Card Header -->
+                    <div>
+                        <!-- Card Photo / Header -->
+                        <div class="relative h-44 w-full bg-slate-100 overflow-hidden border-b border-slate-100">
+                            <?php if (!empty($room['photo'])): ?>
+                                <img
+                                    src="/kost-management/uploads/rooms/<?= e($room['photo']) ?>"
+                                    alt="Kamar <?= e($room['room_number']) ?>"
+                                    class="h-full w-full object-cover transition duration-300 hover:scale-105"
+                                >
+                            <?php else: ?>
+                                <div class="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400">
+                                    <i class="fa-solid fa-image text-3xl"></i>
+                                    <span class="mt-1 text-xs">Belum ada foto</span>
+                                </div>
+                            <?php endif; ?>
 
-                    <div class="border-b border-slate-100 p-5">
-
-                        <div class="flex items-start justify-between gap-4">
-
-                            <div>
-
-                                <p class="text-xs font-medium uppercase tracking-wide text-slate-400">
-                                    Nomor Kamar
-                                </p>
-
-                                <h2 class="mt-1 text-2xl font-bold text-slate-900">
-                                    <?= e($room['room_number']) ?>
-                                </h2>
-
-                                <p class="mt-1 text-sm text-slate-500">
-                                    <?= e($room['type']) ?>
-                                </p>
-
-                            </div>
-
-
-                            <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold <?= $statusClasses[$room['status']] ?? 'bg-slate-100 text-slate-600' ?>">
-
+                            <span class="absolute top-3 right-3 inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm <?= $statusClasses[$room['status']] ?? 'bg-slate-100 text-slate-600' ?>">
                                 <i class="fa-solid <?= $statusIcons[$room['status']] ?? 'fa-circle' ?>"></i>
-
                                 <?= e($statusLabels[$room['status']] ?? $room['status']) ?>
-
                             </span>
-
                         </div>
 
-                    </div>
-
-
-                    <!-- Card Body -->
-
-                    <div class="p-5">
-
-                        <div>
-
-                            <p class="text-xs font-medium uppercase tracking-wide text-slate-400">
-                                Harga Per Bulan
-                            </p>
-
-                            <p class="mt-1 text-lg font-bold text-slate-900">
-                                <?= rupiah($room['monthly_price']) ?>
-                            </p>
-
+                        <!-- Card Header Info -->
+                        <div class="border-b border-slate-100 p-5">
+                            <div class="flex items-start justify-between gap-4">
+                                <div>
+                                    <p class="text-xs font-medium uppercase tracking-wide text-slate-400">
+                                        Nomor Kamar
+                                    </p>
+                                    <h2 class="mt-1 text-2xl font-bold text-slate-900">
+                                        <?= e($room['room_number']) ?>
+                                    </h2>
+                                    <div class="mt-2 flex flex-wrap items-center gap-2">
+                                        <span class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                                            <i class="fa-solid fa-layer-group text-slate-400"></i>
+                                            <?= e(roomTypeLabel($room['type'])) ?>
+                                        </span>
+                                        <span class="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                                            <i class="fa-solid fa-users text-blue-400"></i>
+                                            <?= (int) ($room['capacity'] ?? 1) ?> Orang
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
+
+                        <!-- Card Body -->
+                        <div class="p-5">
+                            <div>
+                                <p class="text-xs font-medium uppercase tracking-wide text-slate-400">
+                                    Harga Per Bulan
+                                </p>
+                                <p class="mt-1 text-lg font-bold text-slate-900">
+                                    <?= rupiah($room['monthly_price']) ?>
+                                </p>
+                            </div>
 
 
                         <div class="mt-5">
@@ -303,6 +310,8 @@ require_once __DIR__ . '/../../includes/header.php';
                             <?php endif; ?>
 
                         </div>
+
+                    </div>
 
                     </div>
 

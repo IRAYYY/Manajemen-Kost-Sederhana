@@ -63,3 +63,32 @@ function formatDateIndonesia($date)
 
     return date('d/m/Y', strtotime($date));
 }
+
+function verificationStatusLabel($status)
+{
+    return match ($status) {
+        'terverifikasi' => 'Terverifikasi',
+        'menunggu_verifikasi' => 'Menunggu Verifikasi',
+        'belum_verifikasi' => 'Belum Verifikasi',
+        default => 'Belum Verifikasi',
+    };
+}
+
+function verificationStatusClass($status)
+{
+    return match ($status) {
+        'terverifikasi' => 'bg-emerald-100 text-emerald-700',
+        'menunggu_verifikasi' => 'bg-amber-100 text-amber-700',
+        'belum_verifikasi' => 'bg-slate-100 text-slate-700',
+        default => 'bg-slate-100 text-slate-700',
+    };
+}
+
+function roomTypeLabel($type)
+{
+    return match (strtolower((string) $type)) {
+        'deluxe' => 'Deluxe',
+        'standard' => 'Standard',
+        default => ucfirst((string) $type),
+    };
+}

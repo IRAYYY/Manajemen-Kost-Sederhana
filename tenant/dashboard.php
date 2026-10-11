@@ -9,7 +9,7 @@ require_once __DIR__ . '/../includes/auth.php';
 
 requireTenant();
 
-$user = currentUser();
+$user = refreshCurrentUser($pdo);
 
 
 /*
@@ -159,6 +159,53 @@ require_once __DIR__ . '/../includes/header.php';
         </p>
 
     </div>
+
+
+    <!-- Verification Status Banner -->
+    <?php $vStatus = $user['verification_status'] ?? 'belum_verifikasi'; ?>
+    <?php if ($vStatus === 'belum_verifikasi'): ?>
+        <div class="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-start gap-3">
+                    <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                        <i class="fa-solid fa-id-card"></i>
+                    </div>
+                    <div>
+                        <p class="font-bold text-amber-900">Profil Anda Belum Diverifikasi</p>
+                        <p class="mt-0.5 text-xs text-amber-800">Silakan lengkapi profil dan upload 1 foto KTP Anda agar dapat memesan kamar.</p>
+                    </div>
+                </div>
+                <a
+                    href="/kost-management/tenant/profile.php"
+                    class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-amber-700"
+                >
+                    <i class="fa-solid fa-user-pen"></i>
+                    Lengkapi Profil & Upload KTP
+                </a>
+            </div>
+        </div>
+    <?php elseif ($vStatus === 'menunggu_verifikasi'): ?>
+        <div class="mb-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 shadow-sm">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex items-start gap-3">
+                    <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                        <i class="fa-solid fa-clock"></i>
+                    </div>
+                    <div>
+                        <p class="font-bold text-blue-900">Profil Menunggu Verifikasi Admin</p>
+                        <p class="mt-0.5 text-xs text-blue-800">Foto KTP dan data Anda sedang dalam proses peninjauan oleh admin.</p>
+                    </div>
+                </div>
+                <a
+                    href="/kost-management/tenant/profile.php"
+                    class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                >
+                    <i class="fa-solid fa-eye"></i>
+                    Lihat Profil
+                </a>
+            </div>
+        </div>
+    <?php endif; ?>
 
 
     <!-- Success message -->
@@ -436,25 +483,20 @@ require_once __DIR__ . '/../includes/header.php';
                                     Pembayaran Ditolak
                                 </p>
 
-                                <?php if (
-                                    !empty(
-                                        $reservation[
-                                            'rejection_reason'
-                                        ]
-                                    )
-                                ): ?>
+                                <?php if (!empty($reservation['rejection_reason'])): ?>
 
                                     <p class="mt-1 text-sm leading-6 text-red-700">
-
-                                        Alasan:
-
-                                        <?= e(
-                                            $reservation[
-                                                'rejection_reason'
-                                            ]
-                                        ) ?>
-
+                                        Alasan: <?= e($reservation['rejection_reason']) ?>
                                     </p>
+
+                                    <button
+                                        type="button"
+                                        onclick="openNoteModal('Catatan Penolakan Pembayaran', <?= json_encode($reservation['rejection_reason']) ?>)"
+                                        class="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-50"
+                                    >
+                                        <i class="fa-solid fa-comment-dots text-red-500"></i>
+                                        Lihat Catatan (Pop-Up)
+                                    </button>
 
                                 <?php else: ?>
 

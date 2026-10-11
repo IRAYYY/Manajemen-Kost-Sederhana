@@ -34,8 +34,10 @@ $stmt = $pdo->prepare(
         id,
         room_number,
         type,
+        capacity,
         monthly_price,
         facilities,
+        photo,
         status
      FROM rooms
      WHERE id = ?
@@ -49,6 +51,30 @@ $room = $stmt->fetch();
 if (!$room) {
     http_response_code(404);
     exit('Kamar tidak ditemukan.');
+}
+
+/*
+|--------------------------------------------------------------------------
+| Cek apakah user sudah memiliki reservasi aktif (Aturan 1 user 1 kamar)
+|--------------------------------------------------------------------------
+*/
+$userActiveReservation = null;
+$userVerificationStatus = null;
+
+if (isLoggedIn() && currentUser()['role'] === 'tenant') {
+    $currentTenantUser = refreshCurrentUser($pdo);
+    $userVerificationStatus = $currentTenantUser['verification_status'] ?? 'belum_verifikasi';
+
+    $chkStmt = $pdo->prepare(
+        "SELECT r.id, rm.room_number 
+         FROM reservations r 
+         JOIN rooms rm ON rm.id = r.room_id 
+         WHERE r.user_id = ? 
+           AND r.status IN ('pending', 'waiting_payment', 'waiting_verification', 'active') 
+         LIMIT 1"
+    );
+    $chkStmt->execute([$currentTenantUser['id']]);
+    $userActiveReservation = $chkStmt->fetch();
 }
 
 
@@ -133,6 +159,22 @@ require_once __DIR__ . '/../includes/header.php';
 
         <div class="lg:col-span-2">
 
+            <!-- Room Photo Banner -->
+            <div class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <?php if (!empty($room['photo'])): ?>
+                    <img
+                        src="/kost-management/uploads/rooms/<?= e($room['photo']) ?>"
+                        alt="Foto Kamar <?= e($room['room_number']) ?>"
+                        class="h-80 w-full object-cover sm:h-96"
+                    >
+                <?php else: ?>
+                    <div class="flex h-64 w-full flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400">
+                        <i class="fa-solid fa-door-open text-5xl"></i>
+                        <span class="mt-3 text-sm font-medium">Foto kamar belum diunggah</span>
+                    </div>
+                <?php endif; ?>
+            </div>
+
             <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
 
                 <div class="flex items-center gap-4">
@@ -156,9 +198,9 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
 
 
-                <div class="mt-8 grid gap-6 sm:grid-cols-2">
+                <div class="mt-8 grid gap-4 sm:grid-cols-3">
 
-                    <div class="rounded-xl bg-slate-50 p-5">
+                    <div class="rounded-xl bg-slate-50 p-4">
 
                         <div class="flex items-center gap-3">
 
@@ -171,7 +213,7 @@ require_once __DIR__ . '/../includes/header.php';
                                 </p>
 
                                 <p class="mt-1 font-semibold text-slate-900">
-                                    <?= e($room['type']) ?>
+                                    <?= e(roomTypeLabel($room['type'])) ?>
                                 </p>
 
                             </div>
@@ -181,7 +223,30 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
 
 
-                    <div class="rounded-xl bg-slate-50 p-5">
+                    <div class="rounded-xl bg-slate-50 p-4">
+
+                        <div class="flex items-center gap-3">
+
+                            <i class="fa-solid fa-users text-slate-500"></i>
+
+                            <div>
+
+                                <p class="text-xs text-slate-500">
+                                    Kapasitas
+                                </p>
+
+                                <p class="mt-1 font-semibold text-slate-900">
+                                    <?= (int) ($room['capacity'] ?? 1) ?> Orang
+                                </p>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="rounded-xl bg-slate-50 p-4">
 
                         <div class="flex items-center gap-3">
 
@@ -190,7 +255,7 @@ require_once __DIR__ . '/../includes/header.php';
                             <div>
 
                                 <p class="text-xs text-slate-500">
-                                    Harga Per Bulan
+                                    Harga / Bulan
                                 </p>
 
                                 <p class="mt-1 font-semibold text-slate-900">
@@ -204,6 +269,7 @@ require_once __DIR__ . '/../includes/header.php';
                     </div>
 
                 </div>
+
 
 
                 <!-- Fasilitas -->
@@ -289,19 +355,55 @@ require_once __DIR__ . '/../includes/header.php';
 
                         <?php if (isLoggedIn() && currentUser()['role'] === 'tenant'): ?>
 
-                            <a
-    href="/kost-management/public/booking.php?room_id=<?= (int) $room['id'] ?>"
-    class="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white hover:bg-slate-700"
->
-    <i class="fa-solid fa-calendar-check"></i>
-    Pesan Kamar
-</a>
+                            <?php if ($userActiveReservation): ?>
+
+                                <div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                                    <div class="flex items-start gap-2.5 text-xs text-amber-800">
+                                        <i class="fa-solid fa-triangle-exclamation mt-0.5 text-amber-600"></i>
+                                        <div>
+                                            <p class="font-semibold">Batas Pemesanan</p>
+                                            <p class="mt-1 leading-relaxed">Anda sudah memiliki pemesanan aktif untuk <strong>Kamar <?= e($userActiveReservation['room_number']) ?></strong>. 1 user hanya bisa memesan 1 kamar.</p>
+                                        </div>
+                                    </div>
+                                    <a href="/kost-management/tenant/dashboard.php" class="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-300 bg-white py-2.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100">
+                                        <i class="fa-solid fa-table-columns"></i>
+                                        Lihat di Dashboard
+                                    </a>
+                                </div>
+
+                            <?php elseif ($userVerificationStatus === 'belum_verifikasi'): ?>
+
+                                <div class="mt-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                                    <div class="flex items-start gap-2.5 text-xs text-blue-800">
+                                        <i class="fa-solid fa-id-card mt-0.5 text-blue-600"></i>
+                                        <div>
+                                            <p class="font-semibold">Lengkapi Profil Terlebih Dahulu</p>
+                                            <p class="mt-1 leading-relaxed">Anda harus melengkapi profil dan mengunggah foto KTP Anda sebelum dapat memesan kamar.</p>
+                                        </div>
+                                    </div>
+                                    <a href="/kost-management/tenant/profile.php" class="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-2.5 text-xs font-semibold text-white transition hover:bg-blue-700">
+                                        <i class="fa-solid fa-user-pen"></i>
+                                        Lengkapi Profil & Upload KTP
+                                    </a>
+                                </div>
+
+                            <?php else: ?>
+
+                                <a
+                                    href="/kost-management/public/booking.php?room_id=<?= (int) $room['id'] ?>"
+                                    class="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white transition hover:bg-slate-700"
+                                >
+                                    <i class="fa-solid fa-calendar-check"></i>
+                                    Pesan Kamar
+                                </a>
+
+                            <?php endif; ?>
 
                         <?php elseif (!isLoggedIn()): ?>
 
                             <a
                                 href="/kost-management/public/login.php"
-                                class="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white hover:bg-slate-700"
+                                class="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 font-semibold text-white transition hover:bg-slate-700"
                             >
                                 <i class="fa-solid fa-right-to-bracket"></i>
                                 Login untuk Memesan
